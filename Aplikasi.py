@@ -45,7 +45,7 @@ with open('y_test.pkl', 'rb') as f:
 
 # ============== HEADER ============== #
 st.title('🚗 Prediksi Harga Mobil Toyota')
-st.image('mobil.png', use_column_width=True)
+st.image('mobil.png', use_container_width=True)
 
 # ============== OCR: AMBIL GAMBAR PLAT ============== #
 st.markdown("### 📸 Ambil Gambar Plat Nomor")
