@@ -2,9 +2,36 @@ import pickle
 import streamlit as st
 import numpy as np
 import pandas as pd
-from sklearn.metrics import mean_absolute_error
+import easyocr
+from PIL import Image
+import tempfile
+import base64
 
-# Load model, encoder, feature names, metrics, and test data
+# ============== BACKGROUND NAVY + TEXT KUNING ============== #
+def set_background_style():
+    st.markdown("""
+        <style>
+        .stApp {
+            background-color: #0a1f44;
+            color: #fdd835;
+        }
+        .stButton>button {
+            background-color: #fdd835;
+            color: #0a1f44;
+            border: none;
+            border-radius: 8px;
+            padding: 0.5em 1em;
+        }
+        .stSelectbox, .stNumberInput {
+            background-color: white;
+            color: black;
+        }
+        </style>
+        """, unsafe_allow_html=True)
+
+set_background_style()
+
+# ============== LOAD MODEL ============== #
 model = pickle.load(open('prediksi_hargamobil.sav', 'rb'))
 encoder = pickle.load(open('encoder.pkl', 'rb'))
 with open('feature_names.pkl', 'rb') as f:
@@ -16,10 +43,36 @@ with open('X_test.pkl', 'rb') as f:
 with open('y_test.pkl', 'rb') as f:
     y_test = pickle.load(f)
 
-st.title('Prediksi Harga Mobil Toyota')
+# ============== HEADER ============== #
+st.title('🚗 Prediksi Harga Mobil Toyota')
 st.image('mobil.png', use_column_width=True)
 
-# Input fields
+# ============== OCR: AMBIL GAMBAR PLAT ============== #
+st.markdown("### 📸 Ambil Gambar Plat Nomor")
+plate_image = st.camera_input("Ambil Foto Plat")
+
+ocr_year = None  # Inisialisasi
+
+if plate_image is not None:
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as tmp_file:
+        tmp_file.write(plate_image.getbuffer())
+        image_path = tmp_file.name
+
+    reader = easyocr.Reader(['en'])
+    result = reader.readtext(image_path, detail=0)
+    extracted_text = " ".join(result)
+    
+    st.markdown("#### 🔍 Teks Plat Terdeteksi:")
+    st.success(f"`{extracted_text}`")
+
+    # Cari angka 4 digit sebagai tahun
+    import re
+    year_match = re.findall(r"\b(20[0-2][0-9]|19[8-9][0-9])\b", extracted_text)
+    if year_match:
+        ocr_year = int(year_match[0])
+        st.info(f"Tahun Produksi terdeteksi dari plat: **{ocr_year}**")
+
+# ============== INPUT USER ============== #
 with st.container():
     car_models = sorted(list(set(pd.read_csv('toyota.csv')['model'].unique())))
     selected_model = st.selectbox('Model Mobil', car_models)
@@ -32,14 +85,18 @@ with st.container():
 
     col1, col2 = st.columns(2)
     with col1:
-        year = st.number_input('Tahun Produksi', min_value=2001, max_value=2024, step=1)
+        # Gunakan hasil OCR jika tersedia
+        year = st.number_input('Tahun Produksi', min_value=2001, max_value=2024,
+                               step=1, value=ocr_year if ocr_year else 2020)
     with col2:
         mileage = st.number_input('Jarak Tempuh (KM)', min_value=0)
 
+# ============== FORMAT CURRENCY ============== #
 def format_price(number):
     return "{:,.0f}".format(number).replace(",", ".")
 
-if st.button('Prediksi Harga'):
+# ============== PREDIKSI ============== #
+if st.button('🔮 Prediksi Harga'):
     if year == 0 or mileage == 0:
         st.warning('Mohon lengkapi semua data input!')
     else:
@@ -51,30 +108,24 @@ if st.button('Prediksi Harga'):
                     'transmission': [selected_transmission],
                     'fuelType': [selected_fuel_type]
                 })
-                
-                # Encode categorical features
                 encoded_categorical = encoder.transform(categorical_features)
                 
-                # Prepare numerical features
+                # Numerical
                 numerical_features = np.array([[year, mileage]])
                 
                 # Combine features
                 prediction_input = np.hstack((numerical_features, encoded_categorical))
                 
-                # Make prediction
+                # Predict
                 prediction = model.predict(prediction_input)[0]
-                
-                # Convert to Rupiah
                 prediction_rupiah = prediction * 19500
                 
-                # Display prediction
-                st.success('Prediksi Selesai!')
-                st.write('Prediksi Harga Mobil (IDR):', f"Rp {format_price(prediction_rupiah)}")
+                st.success('✅ Prediksi Selesai!')
+                st.markdown(f"### 💰 Prediksi Harga Mobil: `Rp {format_price(prediction_rupiah)}`")
                 
-                # Display precomputed metrics
-                st.write(f"Mean Absolute Error (MAE): {metrics['mae']:.2f}")
-                st.write(f"Mean Absolute Percentage Error (MAPE): {metrics['mape']:.2f}%")
-                st.write(f"Akurasi Model: {metrics['accuracy']:.2f}%")
-                
+                st.markdown("---")
+                st.markdown(f"- 📊 MAE: **{metrics['mae']:.2f}**")
+                st.markdown(f"- 📉 MAPE: **{metrics['mape']:.2f}%**")
+                st.markdown(f"- 🧠 Akurasi Model: **{metrics['accuracy']:.2f}%**")
             except Exception as e:
-                st.error(f'Terjadi kesalahan: {str(e)}')
+                st.error(f'❌ Terjadi kesalahan: {str(e)}')
